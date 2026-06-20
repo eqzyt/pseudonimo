@@ -1,4 +1,4 @@
-local BASE_URL = "https://raw.githubusercontent.com/eqzyt/pseudonimo/main"
+local BASE_URL = "https://raw.githubusercontent.com/eqzyt/pseudonimo/aw3/main"
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
