@@ -1,7 +1,7 @@
 -- ============================================================
 -- ui.lua
 -- Constroi a janela e todas as paginas/abas, conectando os
--- callbacks aos modulos (Combat / Raid / Escort / Egg / Helpers).
+-- callbacks aos modulos (Combat / Raid / Escort / Egg / Invasion).
 -- ============================================================
 
 return function(ctx)
@@ -13,6 +13,7 @@ return function(ctx)
     local Raid    = ctx.Raid
     local Escort  = ctx.Escort
     local Egg     = ctx.Egg
+    local Invasion = ctx.Invasion
     local S       = ctx.Services
     local LocalPlayer = ctx.LocalPlayer
 
@@ -372,6 +373,60 @@ return function(ctx)
             end
         })
         escortToggle:Keybind({ Name = "Toggle Auto Escort", Flag = "AutoEscortKey", Default = Enum.KeyCode.E })
+    end
+
+    -- ===== INVASIONS / INFILTRATION =====
+    local InvPage = Window:Page({ Name = "invasions" })
+    do
+        -- ── Auto Invasion ──
+        local invSec = InvPage:Section({ Name = "auto invasion", Side = 1 })
+        invSec:Toggle({
+            Name = "Auto Invasion", Flag = "AutoInvasion", Default = false,
+            Callback = function(v)
+                if v then Invasion.StartAutoInvasion() else Invasion.StopAutoInvasion() end
+            end
+        })
+        invSec:Dropdown({
+            Name = "Invasion", Flag = "SelInvasion",
+            Items = Config.InvasionNames,
+            Default = Config.InvasionNames[1] or "",
+            Callback = function(v) Flags.SelectedInvasion = v end
+        })
+        invSec:Toggle({
+            Name = "Friends Only", Flag = "InvFriends", Default = true,
+            Callback = function(v) Flags.InvasionFriendsOnly = v end
+        })
+        local invInfo = InvPage:Section({ Name = "info invasion", Side = 1 })
+        invInfo:Label("Invasion = auto-fight (jogo envia warriors)", "Center")
+        invInfo:Label("Cria → Lobby → Espera → Leave → Repete", "Center")
+
+        -- ── Auto Infiltration ──
+        local infSec = InvPage:Section({ Name = "auto infiltration", Side = 2 })
+        infSec:Toggle({
+            Name = "Auto Infiltration", Flag = "AutoInfiltration", Default = false,
+            Callback = function(v)
+                if v then Invasion.StartAutoInfiltration() else Invasion.StopAutoInfiltration() end
+            end
+        })
+        infSec:Dropdown({
+            Name = "Infiltration", Flag = "SelInfiltration",
+            Items = Config.InfiltrationNames,
+            Default = Config.InfiltrationNames[1] or "",
+            Callback = function(v) Flags.SelectedInfiltration = v end
+        })
+        infSec:Dropdown({
+            Name = "Tier", Flag = "InfTier",
+            Items = Config.InfiltrationTiers,
+            Default = "I",
+            Callback = function(v) Flags.InfiltrationTier = v end
+        })
+        infSec:Toggle({
+            Name = "Friends Only", Flag = "InfFriends", Default = true,
+            Callback = function(v) Flags.InfiltrationFriendsOnly = v end
+        })
+        local infInfo = InvPage:Section({ Name = "info infiltration", Side = 2 })
+        infInfo:Label("Infiltration = Fase 1: NPCs → Fase 2: Boss", "Center")
+        infInfo:Label("Usa heuristica se boss name nao configurado", "Center")
     end
 
     return Window
