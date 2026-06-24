@@ -66,6 +66,7 @@ mount("Combat", "src/combat.lua")
 mount("Escort", "src/escort.lua")
 mount("Raid",   "src/raid.lua")   
 mount("Egg",    "src/egg.lua")
+mount("Invasion", "src/invasion.lua")
 
 if not _G.__AW3_HOOKS_INSTALLED then
     _G.__AW3_HOOKS_INSTALLED = true
