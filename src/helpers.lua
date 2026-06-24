@@ -62,7 +62,15 @@ return function(ctx)
         pcall(function()
             local char = LocalPlayer.Character
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.CFrame = CFrame.new(pos) end
+            local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+            if hrp then
+                hrp.CFrame = CFrame.new(pos)
+                hrp.Velocity = Vector3.new(0, 0.05, 0)
+                pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0) end)
+                if hum then
+                    hum:Move(Vector3.new(0, 0, -0.05))
+                end
+            end
         end)
     end
 
@@ -72,8 +80,14 @@ return function(ctx)
             if not pos then return false end
             local char = LocalPlayer.Character
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+            local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
             if not hrp then return false end
             hrp.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
+            hrp.Velocity = Vector3.new(0, 0.05, 0)
+            pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0) end)
+            if hum then
+                hum:Move(Vector3.new(0, 0, -0.05))
+            end
             return true
         end)
         return ok and result or false
