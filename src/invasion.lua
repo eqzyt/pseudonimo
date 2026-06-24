@@ -124,6 +124,7 @@ return function(ctx)
         pcall(function() S.lobbiesStart:FireServer() end)
         task.wait(2)
 
+        -- Verifica se os inimigos carregaram (prova de que você está no mapa da invasão)
         if not WaitForInvasionEnemies(30) then
             Library:Notification({ Name = "Invasion nao iniciou, pulando...", Time = 3 })
             pcall(function() S.invasionLeave:FireServer() end)
@@ -131,17 +132,23 @@ return function(ctx)
             return "failed_start"
         end
 
-        Library:Notification({ Name = "Invasion iniciada!", Time = 2 })
+        Library:Notification({ Name = "Invasion iniciada! Aguardando 2s para o TP...", Time = 2 })
 
-        -- === NOVO CÓDIGO DE TELEPORTE DA INVASION ===
+        -- === NOVO CÓDIGO DE TELEPORTE (ESPERA DE 2 SEGUNDOS) ===
+        -- Espera exatamente 2 segundos para garantir que o seu personagem carregou no mapa da Invasion
+        task.wait(2)
+
         pcall(function()
             if H and H.TeleportTo then
+                -- Força o teleporte para a coordenada pedida
                 H.TeleportTo(Vector3.new(5049.59, 6018.97, -21.29))
-                Library:Notification({ Name = "Teleportado para o local da Invasion!", Time = 2 })
+                Library:Notification({ Name = "Teleportado para o local exato da Invasion!", Time = 3 })
             end
         end)
+        
+        -- Mais um pequeno delay para estabilizar o boneco antes de mandar atacar
         task.wait(0.5)
-        -- ============================================
+        -- =======================================================
 
         local invasionDone = false
         local conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
