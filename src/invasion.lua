@@ -16,8 +16,26 @@ return function(ctx)
     local invasionThread       = nil
     local infiltrationThread   = nil
 
+    -- ============ VERIFICACAO DE REMOTES ============
+    local function CheckRemotes()
+        if not S.invasionCreate or not S.invasionLeave then
+            warn("[Invasion] Remotes de invasao nao encontrados!")
+            return false
+        end
+        if not S.infiltrationCreate or not S.lobbiesStart or not S.lobbiesLeave then
+            warn("[Infiltration] Remotes de infiltration nao encontrados!")
+            return false
+        end
+        if not S.clientSummary then
+            warn("[Invasion] Remote clientSummary nao encontrado!")
+            return false
+        end
+        return true
+    end
+
     -- ============ TELEPORTE / FALLBACK ============
     local function TeleportToTargetOrCenter(uuid)
+        if not H then return end
         local success = H.TeleportToEnemy(uuid)
         if not success then
             local pos = H.GetEnemyPosition(uuid)
@@ -31,6 +49,7 @@ return function(ctx)
     -- ============ COLETA / CLASSIFICACAO ============
     local function GetInvasionEnemiesOnly()
         local enemies = {}
+        if not H then return enemies end
         local folder = H.GetEnemiesFolder()
         if not folder then return enemies end
 
@@ -65,16 +84,9 @@ return function(ctx)
         return false
     end
 
-    local function ClassifyInvasionEnemies(enemies)
-        local npcs = {}
-        for _, e in ipairs(enemies) do
-            table.insert(npcs, e)
-        end
-        return npcs
-    end
-
     -- ============ COMBATE NUM ALVO (INVASION) ============
     local function InvasionCombatFollowTarget(target, invasionDone, flagCheckFn)
+        if not H then return end
         flagCheckFn = flagCheckFn or function() return Flags.AutoInvasion end
 
         while flagCheckFn() and not invasionDone() and H.IsEnemyAlive(target.uuid) do
@@ -90,10 +102,15 @@ return function(ctx)
 
     -- ============ INVASION UNICA ============
     function M.RunSingleInvasion(invasionName, flagCheckFn)
+        if not CheckRemotes() then
+            Library:Notification({ Name = "Remotes nao carregaram!", Time = 3 })
+            return "failed_start"
+        end
+
         Library:Notification({ Name = "Invasion: " .. invasionName, Time = 3 })
 
         local ok, result = pcall(function()
-            return S.invasionCreate:InvokeServer(invasionName, { friendsOnly = Flags.InvasionFriendsOnly, spawnNormal = false })
+            return S.invasionCreate:InvokeServer(invasionName, { friendsOnly = Flags.InvasionFriendsOnly })
         end)
 
         if not ok or result == false or result == nil then
@@ -179,7 +196,10 @@ return function(ctx)
     -- ============ AUTO INVASION ============
     function M.StopAutoInvasion()
         Flags.AutoInvasion = false
-        invasionThread = nil
+        if invasionThread then
+            task.cancel(invasionThread)
+            invasionThread = nil
+        end
     end
 
     function M.StartAutoInvasion()
@@ -190,7 +210,7 @@ return function(ctx)
             local function isActive() return Flags.AutoInvasion end
 
             while Flags.AutoInvasion do
-                local invasion = Flags.SelectedInvasion or Config.InvasionNames[1]
+                local invasion = Flags.SelectedInvasion or (Config.InvasionNames and Config.InvasionNames[1]) or "Dark Matter Invasion"
                 local status = M.RunSingleInvasion(invasion, isActive)
 
                 if not Flags.AutoInvasion then break end
@@ -205,6 +225,7 @@ return function(ctx)
     -- ============ INFILTRATION (FASE 1: NPCs -> FASE 2: BOSS) ============
     local function GetInfiltrationEnemiesOnly()
         local enemies = {}
+        if not H then return enemies end
         local folder = H.GetEnemiesFolder()
         if not folder then return enemies end
 
@@ -241,7 +262,7 @@ return function(ctx)
 
     local function FindBossEnemy(enemies, infiltrationName)
         -- Primeiro, tenta achar o nome do boss na config
-        local bossNames = Config.InfiltrationBossNames[infiltrationName]
+        local bossNames = Config.InfiltrationBossNames and Config.InfiltrationBossNames[infiltrationName]
         if bossNames then
             for _, e in ipairs(enemies) do
                 for _, bossName in ipairs(bossNames) do
@@ -251,6 +272,7 @@ return function(ctx)
         end
 
         -- Fallback: o com maior maxHP
+        if #enemies == 0 then return nil end
         local boss = enemies[1]
         for _, e in ipairs(enemies) do
             if e.maxHp > boss.maxHp then boss = e end
@@ -259,6 +281,7 @@ return function(ctx)
     end
 
     local function InfiltrationCombatFollowTarget(target, infiltrationDone, flagCheckFn)
+        if not H then return end
         flagCheckFn = flagCheckFn or function() return Flags.AutoInfiltration end
 
         while flagCheckFn() and not infiltrationDone() and H.IsEnemyAlive(target.uuid) do
@@ -274,6 +297,11 @@ return function(ctx)
 
     -- ============ INFILTRATION UNICA ============
     function M.RunSingleInfiltration(infiltrationName, tier, flagCheckFn)
+        if not CheckRemotes() then
+            Library:Notification({ Name = "Remotes nao carregaram!", Time = 3 })
+            return "failed_start"
+        end
+
         Library:Notification({ Name = "Infiltration: " .. infiltrationName .. " [" .. tier .. "]", Time = 3 })
 
         local ok, result = pcall(function()
@@ -354,7 +382,7 @@ return function(ctx)
                     target = enemies[1]
                 end
 
-                if not H.IsEnemyAlive(target.uuid) then task.wait(0.2) return end
+                if not target or not H.IsEnemyAlive(target.uuid) then task.wait(0.2) return end
 
                 if Flags.TeleportRaid then TeleportToTargetOrCenter(target.uuid) end
 
@@ -391,7 +419,10 @@ return function(ctx)
     -- ============ AUTO INFILTRATION ============
     function M.StopAutoInfiltration()
         Flags.AutoInfiltration = false
-        infiltrationThread = nil
+        if infiltrationThread then
+            task.cancel(infiltrationThread)
+            infiltrationThread = nil
+        end
     end
 
     function M.StartAutoInfiltration()
@@ -402,7 +433,7 @@ return function(ctx)
             local function isActive() return Flags.AutoInfiltration end
 
             while Flags.AutoInfiltration do
-                local infiltration = Flags.SelectedInfiltration or Config.InfiltrationNames[1]
+                local infiltration = Flags.SelectedInfiltration or (Config.InfiltrationNames and Config.InfiltrationNames[1]) or "Rain Village"
                 local tier = Flags.InfiltrationTier or "I"
                 local status = M.RunSingleInfiltration(infiltration, tier, isActive)
 
