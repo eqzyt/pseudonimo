@@ -70,6 +70,13 @@ S.weaponUltimate = remo("weapons.useUltimate")
 S.escortCreate   = remo("escorts.create")
 S.escortLeave    = remo("escorts.leaveEscort")
 
+-- ============ INVASION / INFILTRATION REMOTES ============
+S.invasionCreate     = remo("invasions.create")
+S.invasionLeave      = remo("invasions.leaveInvasion")
+S.infiltrationCreate = remo("infiltration.create")
+S.lobbiesStart       = remo("lobbies.start")
+S.lobbiesLeave       = remo("lobbies.leave")
+
 -- Diagnostico: lista o que faltou resolver (aparece no console)
 function S.Diagnose()
     local required = {
