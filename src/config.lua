@@ -112,7 +112,22 @@ Config.Flags = {
     SessionStart     = os.time(),
 }
 
--- Toggles de cada enemy na aba "enemies" (preenchido pela UI)
+-- ============ INVASION ============
+Config.InvasionNames = {
+    "Dark Matter Invasion",
+    -- adicione mais aqui quando descobrir
+}
+-- ============ INFILTRATION ============
+Config.InfiltrationNames = {
+    "Rain Village",
+    -- adicione mais aqui quando descobrir
+}
+Config.InfiltrationTiers = { "I", "II", "III" }
+
+Config.InfiltrationBossNames = {
+    ["Rain Village"] = { "Nagoto" },
+}
+
 Config.EnemyToggles = {}
 
 return Config
