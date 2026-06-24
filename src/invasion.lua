@@ -16,6 +16,8 @@ return function(ctx)
     local invasionThread       = nil
     local infiltrationThread   = nil
 
+    local INVASION_CENTER = Vector3.new(5049.59, 6018.97, -21.29)
+
     -- ============ VERIFICACAO DE REMOTES ============
     local function CheckRemotes()
         if not S.invasionCreate or not S.invasionLeave then
@@ -26,10 +28,6 @@ return function(ctx)
             warn("[Infiltration] Remotes de infiltration nao encontrados!")
             return false
         end
-        if not S.clientSummary then
-            warn("[Invasion] Remote clientSummary nao encontrado!")
-            return false
-        end
         return true
     end
 
@@ -38,12 +36,17 @@ return function(ctx)
         if not H then return end
         local success = H.TeleportToEnemy(uuid)
         if not success then
-            local pos = H.GetEnemyPosition(uuid)
-            if pos then
-                H.TeleportTo(pos)
-                Library:Notification({ Name = "Inimigo longe! Indo pra posicao...", Time = 2 })
-            end
+            H.TeleportTo(INVASION_CENTER)
         end
+    end
+
+    -- ============ SAIR FORÇADO ============
+    local function ForceLeaveInvasion()
+        pcall(function() S.invasionLeave:FireServer() end)
+        -- Dispara o remote cru fornecido para garantir a saida imediata
+        pcall(function()
+            game:GetService("ReplicatedStorage").rbxts_include.node_modules["@rbxts"].remo.src.container["invasions.leaveInvasion"]:FireServer()
+        end)
     end
 
     -- ============ COLETA / CLASSIFICACAO ============
@@ -93,7 +96,9 @@ return function(ctx)
             local okI = pcall(function()
                 H.WaitForWarriorsRecovery(flagCheckFn)
                 if not H.AreAllAliveWarriorsAttacking(target.uuid) then H.SendWarriorsTo(target.uuid) end
-                if Flags.TeleportRaid then H.TeleportToEnemy(target.uuid) end
+                
+                -- Nas invasions mantemos o personagem TRAVADO no centro
+                if Flags.TeleportRaid then H.TeleportTo(INVASION_CENTER) end
             end)
             if not okI then task.wait(0.5) end
             task.wait(0.25)
@@ -109,12 +114,18 @@ return function(ctx)
 
         Library:Notification({ Name = "Invasion: " .. invasionName, Time = 3 })
 
+        -- Melhoria para evitar o SPAM do remote se ele nao retornar True/False certinho
         local ok, result = pcall(function()
-            return S.invasionCreate:InvokeServer(invasionName, { friendsOnly = Flags.InvasionFriendsOnly })
+            if S.invasionCreate.InvokeServer then
+                return S.invasionCreate:InvokeServer(invasionName, { friendsOnly = Flags.InvasionFriendsOnly })
+            else
+                S.invasionCreate:FireServer(invasionName, { friendsOnly = Flags.InvasionFriendsOnly })
+                return true
+            end
         end)
 
-        if not ok or result == false or result == nil then
-            Library:Notification({ Name = "Sem acesso: " .. invasionName, Time = 3 })
+        if not ok then
+            Library:Notification({ Name = "Erro ao tentar criar: " .. invasionName, Time = 3 })
             return "cooldown"
         end
 
@@ -124,61 +135,68 @@ return function(ctx)
         pcall(function() S.lobbiesStart:FireServer() end)
         task.wait(2)
 
-        -- Verifica se os inimigos carregaram (prova de que você está no mapa da invasão)
-        if not WaitForInvasionEnemies(30) then
-            Library:Notification({ Name = "Invasion nao iniciou, pulando...", Time = 3 })
-            pcall(function() S.invasionLeave:FireServer() end)
+        -- Tempo de espera aumentado para 60 segundos (Evita spammar falhas se a net ou mapa demorar)
+        if not WaitForInvasionEnemies(60) then
+            Library:Notification({ Name = "Invasion nao iniciou, abortando loop...", Time = 3 })
+            ForceLeaveInvasion()
             task.wait(2)
             return "failed_start"
         end
 
-        Library:Notification({ Name = "Invasion iniciada! Aguardando 2s para o TP...", Time = 2 })
-
-        -- === NOVO CÓDIGO DE TELEPORTE (ESPERA DE 2 SEGUNDOS) ===
-        -- Espera exatamente 2 segundos para garantir que o seu personagem carregou no mapa da Invasion
-        task.wait(2)
-
-        pcall(function()
-            if H and H.TeleportTo then
-                -- Força o teleporte para a coordenada pedida
-                H.TeleportTo(Vector3.new(5049.59, 6018.97, -21.29))
-                Library:Notification({ Name = "Teleportado para o local exato da Invasion!", Time = 3 })
-            end
-        end)
-        
-        -- Mais um pequeno delay para estabilizar o boneco antes de mandar atacar
-        task.wait(0.5)
-        -- =======================================================
+        Library:Notification({ Name = "Invasion iniciada!", Time = 2 })
 
         local invasionDone = false
-        local conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
-            if raidType ~= "invasions" then return end
-            invasionDone = true
-            Flags.InvasionsCompleted = (Flags.InvasionsCompleted or 0) + 1
-            Library:Notification({ Name = "Invasion completa!", Time = 5 })
-            task.delay(1, function()
-                pcall(function() S.invasionLeave:FireServer() end)
-                Library:Notification({ Name = "Saiu da invasion!", Time = 2 })
+        local conn = nil
+        if S.clientSummary then
+            conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
+                if type(raidType) == "string" and string.find(string.lower(raidType), "invasion") then
+                    invasionDone = true
+                    Flags.InvasionsCompleted = (Flags.InvasionsCompleted or 0) + 1
+                    Library:Notification({ Name = "Invasion completa (Evento Recebido)!", Time = 5 })
+                    task.delay(1, function()
+                        ForceLeaveInvasion()
+                        Library:Notification({ Name = "Saiu da invasion!", Time = 2 })
+                    end)
+                end
             end)
-        end)
+        end
 
         local function isInvasionDone() return invasionDone end
         local timeout = os.clock() + CONST.RAID_TIMEOUT
+        local emptyTimer = 0
 
         while flagCheckFn() and not invasionDone and os.clock() < timeout do
             local iterOk, iterErr = pcall(function()
                 local enemies = GetInvasionEnemiesOnly()
 
+                -- === CHECAGEM DE INIMIGOS E TEMPO DE SAIDA (Pula o timer de 30s da Vitoria) ===
                 if #enemies == 0 then
-                    Library:Notification({ Name = "Procurando inimigos...", Time = 1.5 })
-                    task.wait(1.5)
+                    emptyTimer = emptyTimer + 0.5
+                    
+                    if emptyTimer >= 15 then -- Se ficar 15 segundos corridos sem nenhum inimigo na tela, forca a saida!
+                        Library:Notification({ Name = "Invasion finalizada! Saindo imediatamente...", Time = 3 })
+                        invasionDone = true
+                        ForceLeaveInvasion()
+                        return
+                    end
+                    
+                    if Flags.TeleportRaid then
+                        H.TeleportTo(INVASION_CENTER)
+                    end
+                    task.wait(0.5)
                     return
+                else
+                    -- Reseta o timer caso os inimigos nascam de novo (proxima onda)
+                    emptyTimer = 0
                 end
 
                 local target = enemies[1]
                 if not H.IsEnemyAlive(target.uuid) then task.wait(0.2) return end
 
-                if Flags.TeleportRaid then TeleportToTargetOrCenter(target.uuid) end
+                -- Mantem o personagem travado no centro, sem ir ate a cabeça do inimigo
+                if Flags.TeleportRaid then 
+                    H.TeleportTo(INVASION_CENTER) 
+                end
 
                 if not H.AreAllAliveWarriorsAttacking(target.uuid) then
                     H.SendWarriorsTo(target.uuid)
@@ -203,6 +221,7 @@ return function(ctx)
 
         if not invasionDone then
             Library:Notification({ Name = "Invasion expirou.", Time = 3 })
+            ForceLeaveInvasion()
             return "timeout"
         end
 
@@ -278,7 +297,6 @@ return function(ctx)
     end
 
     local function FindBossEnemy(enemies, infiltrationName)
-        -- Primeiro, tenta achar o nome do boss na config
         local bossNames = Config.InfiltrationBossNames and Config.InfiltrationBossNames[infiltrationName]
         if bossNames then
             for _, e in ipairs(enemies) do
@@ -288,7 +306,6 @@ return function(ctx)
             end
         end
 
-        -- Fallback: o com maior maxHP
         if #enemies == 0 then return nil end
         local boss = enemies[1]
         for _, e in ipairs(enemies) do
@@ -322,11 +339,16 @@ return function(ctx)
         Library:Notification({ Name = "Infiltration: " .. infiltrationName .. " [" .. tier .. "]", Time = 3 })
 
         local ok, result = pcall(function()
-            return S.infiltrationCreate:InvokeServer(infiltrationName, tier, { friendsOnly = Flags.InfiltrationFriendsOnly })
+            if S.infiltrationCreate.InvokeServer then
+                return S.infiltrationCreate:InvokeServer(infiltrationName, tier, { friendsOnly = Flags.InfiltrationFriendsOnly })
+            else
+                S.infiltrationCreate:FireServer(infiltrationName, tier, { friendsOnly = Flags.InfiltrationFriendsOnly })
+                return true
+            end
         end)
 
-        if not ok or result == false or result == nil then
-            Library:Notification({ Name = "Sem acesso: " .. infiltrationName, Time = 3 })
+        if not ok then
+            Library:Notification({ Name = "Erro ao tentar criar: " .. infiltrationName, Time = 3 })
             return "cooldown"
         end
 
@@ -336,7 +358,7 @@ return function(ctx)
         pcall(function() S.lobbiesStart:FireServer() end)
         task.wait(2)
 
-        if not WaitForInfiltrationEnemies(30) then
+        if not WaitForInfiltrationEnemies(60) then
             Library:Notification({ Name = "Infiltration nao iniciou, pulando...", Time = 3 })
             pcall(function() S.lobbiesLeave:FireServer() end)
             task.wait(2)
@@ -346,32 +368,45 @@ return function(ctx)
         Library:Notification({ Name = "Infiltration iniciada!", Time = 2 })
 
         local infiltrationDone = false
-        local conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
-            if raidType ~= "infiltrations" then return end
-            infiltrationDone = true
-            Flags.InfiltrationsCompleted = (Flags.InfiltrationsCompleted or 0) + 1
-            Library:Notification({ Name = "Infiltration completa!", Time = 5 })
-            task.delay(1, function()
-                pcall(function() S.lobbiesLeave:FireServer() end)
-                Library:Notification({ Name = "Saiu da infiltration!", Time = 2 })
+        local conn = nil
+        if S.clientSummary then
+            conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
+                if type(raidType) == "string" and string.find(string.lower(raidType), "infiltrations") then
+                    infiltrationDone = true
+                    Flags.InfiltrationsCompleted = (Flags.InfiltrationsCompleted or 0) + 1
+                    Library:Notification({ Name = "Infiltration completa!", Time = 5 })
+                    task.delay(1, function()
+                        pcall(function() S.lobbiesLeave:FireServer() end)
+                        Library:Notification({ Name = "Saiu da infiltration!", Time = 2 })
+                    end)
+                end
             end)
-        end)
+        end
 
         local function isInfiltrationDone() return infiltrationDone end
         local lastPhase = ""
         local timeout = os.clock() + CONST.RAID_TIMEOUT
+        local emptyTimer = 0
 
         while flagCheckFn() and not infiltrationDone and os.clock() < timeout do
             local iterOk, iterErr = pcall(function()
                 local enemies = GetInfiltrationEnemiesOnly()
 
                 if #enemies == 0 then
+                    emptyTimer = emptyTimer + 0.5
+                    if emptyTimer >= 15 then
+                        Library:Notification({ Name = "Infiltration finalizada! Saindo imediatamente...", Time = 3 })
+                        infiltrationDone = true
+                        pcall(function() S.lobbiesLeave:FireServer() end)
+                        return
+                    end
                     Library:Notification({ Name = "Procurando inimigos...", Time = 1.5 })
                     task.wait(1.5)
                     return
+                else
+                    emptyTimer = 0
                 end
 
-                -- Heuristica: se a maioria dos enemies tem HP baixo comparado ao maior, estamos na Fase 1 (NPCs)
                 local maxHp = 0
                 for _, e in ipairs(enemies) do
                     if e.maxHp > maxHp then maxHp = e.maxHp end
