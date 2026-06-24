@@ -27,8 +27,8 @@ local INVASION_CENTER = Vector3.new(5049.59, 6018.97, -21.29)
 local INVASION_DETECT_RADIUS = 150
 
 -- Tempo (em segundos) sem nenhum inimigo dentro do raio para considerar a
--- invasion encerrada e sair imediatamente.
-local INVASION_EMPTY_THRESHOLD = 6
+-- invasion encerrada e sair imediatamente (como fallback, priorizando client.summary).
+local INVASION_EMPTY_THRESHOLD = 35
 
 -- ============ VERIFICACAO DE REMOTES ============
 local function CheckRemotes()
@@ -39,6 +39,9 @@ local function CheckRemotes()
     if not S.infiltrationCreate or not S.lobbiesStart or not S.lobbiesLeave then
         warn("[Infiltration] Remotes de infiltration nao encontrados!")
         return false
+    end
+    if not S.invasionVoteCard then
+        warn("[Invasion] Remote S.invasionVoteCard nao resolvido! Auto-vote estara inativo.")
     end
     return true
 end
@@ -170,6 +173,7 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
 
     local invasionDone = false
     local conn = nil
+    local voteConn = nil
 
     if S.clientSummary then
         conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
@@ -181,6 +185,78 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
                 ForceLeaveInvasion()
                 Library:Notification({ Name = "Saiu da invasion!", Time = 2 })
             end
+        end)
+    end
+
+    if S.invasionVoteCard then
+        local CARD_SCORES = {
+            ["Overflowing Wealth III"] = 100,
+            ["Overflowing Wealth II"]  = 99,
+            ["Overflowing Wealth I"]   = 98,
+            ["Warrior Blessing III"]   = 80,
+            ["Boss Killer III"]        = 80,
+            ["Espionage"]              = 80,
+            ["Warrior Blessing II"]    = 70,
+            ["Boss Killer II"]         = 70,
+            ["Warrior Blessing I"]     = 60,
+            ["Boss Killer I"]          = 60,
+        }
+
+        local function FindStringsInTable(tbl, list)
+            for _, v in pairs(tbl) do
+                if type(v) == "string" then
+                    table.insert(list, v)
+                elseif type(v) == "table" then
+                    FindStringsInTable(v, list)
+                end
+            end
+        end
+
+        voteConn = S.invasionVoteCard.OnClientEvent:Connect(function(...)
+            local args = { ... }
+            local strings = {}
+            for _, arg in ipairs(args) do
+                if type(arg) == "string" then
+                    table.insert(strings, arg)
+                elseif type(arg) == "table" then
+                    FindStringsInTable(arg, strings)
+                end
+            end
+
+            local candidates = {}
+            local highestScore = -1
+
+            for _, cardName in ipairs(strings) do
+                local score = -1
+                for pattern, val in pairs(CARD_SCORES) do
+                    if string.find(cardName, pattern) then
+                        score = val
+                        break
+                    end
+                end
+
+                if score > -1 then
+                    if score > highestScore then
+                        highestScore = score
+                        candidates = { cardName }
+                    elseif score == highestScore then
+                        table.insert(candidates, cardName)
+                    end
+                end
+            end
+
+            local choice = nil
+            if #candidates > 0 then
+                local index = math.random(1, #candidates)
+                choice = candidates[index]
+            else
+                choice = "Invasion Warrior Blessing III" -- Default fallback
+            end
+
+            Library:Notification({ Name = "Voto automatico: " .. choice, Time = 3 })
+            pcall(function()
+                S.invasionVoteCard:FireServer(choice)
+            end)
         end)
     end
 
@@ -239,6 +315,7 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
     end
 
     if conn then conn:Disconnect() conn = nil end
+    if voteConn then voteConn:Disconnect() voteConn = nil end
     if not flagCheckFn() then return "stopped" end
 
     if not invasionDone then
