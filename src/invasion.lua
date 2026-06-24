@@ -133,6 +133,16 @@ return function(ctx)
 
         Library:Notification({ Name = "Invasion iniciada!", Time = 2 })
 
+        -- === NOVO CÓDIGO DE TELEPORTE DA INVASION ===
+        pcall(function()
+            if H and H.TeleportTo then
+                H.TeleportTo(Vector3.new(5049.59, 6018.97, -21.29))
+                Library:Notification({ Name = "Teleportado para o local da Invasion!", Time = 2 })
+            end
+        end)
+        task.wait(0.5)
+        -- ============================================
+
         local invasionDone = false
         local conn = S.clientSummary.OnClientEvent:Connect(function(raidType, data)
             if raidType ~= "invasions" then return end
