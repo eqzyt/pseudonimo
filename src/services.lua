@@ -73,6 +73,7 @@ S.escortLeave    = remo("escorts.leaveEscort")
 -- ============ INVASION / INFILTRATION REMOTES ============
 S.invasionCreate     = remo("invasions.create")
 S.invasionLeave      = remo("invasions.leaveInvasion")
+S.invasionVoteCard   = remo("invasions.voteCard")
 S.infiltrationCreate = remo("infiltration.create")
 S.lobbiesStart       = remo("lobbies.start")
 S.lobbiesLeave       = remo("lobbies.leave")
