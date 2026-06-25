@@ -115,12 +115,70 @@ local function InvasionCombatFollowTarget(target, invasionDone, flagCheckFn)
         local okI = pcall(function()
             H.WaitForWarriorsRecovery(flagCheckFn)
             if not H.AreAllAliveWarriorsAttacking(target.uuid) then H.SendWarriorsTo(target.uuid) end
-            -- Nas invasions mantemos o personagem TRAVADO no centro
-            if Flags.TeleportRaid then H.TeleportTo(INVASION_CENTER) end
+            if Flags.TeleportRaid then
+                local nearest = H.GetNearestAliveEnemy()
+                local tpTarget = nearest and nearest.uuid or target.uuid
+                H.TeleportToEnemy(tpTarget)
+            end
         end)
         if not okI then task.wait(0.5) end
         task.wait(0.25)
     end
+end
+
+local CARD_SCORES = {
+    ["Overflowing Wealth III"] = 100,
+    ["Overflowing Wealth II"]  = 99,
+    ["Overflowing Wealth I"]   = 98,
+    ["Warrior Blessing III"]   = 80,
+    ["Boss Killer III"]        = 80,
+    ["Espionage"]              = 80,
+    ["Warrior Blessing II"]    = 70,
+    ["Boss Killer II"]         = 70,
+    ["Warrior Blessing I"]     = 60,
+    ["Boss Killer I"]          = 60,
+}
+
+local function FindStringsInTable(tbl, list)
+    for _, v in pairs(tbl) do
+        if type(v) == "string" then
+            table.insert(list, v)
+        elseif type(v) == "table" then
+            FindStringsInTable(v, list)
+        end
+    end
+end
+
+local function ScanPlayerGuiForVoteCards()
+    local foundCards = {}
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then return foundCards end
+
+    local function search(object)
+        if object:IsA("TextLabel") or object:IsA("TextButton") then
+            local text = object.Text
+            if type(text) == "string" and text ~= "" then
+                for pattern in pairs(CARD_SCORES) do
+                    if string.find(string.lower(text), string.lower(pattern)) then
+                        local remoteName = text
+                        if not string.find(string.lower(remoteName), "^invasion ") then
+                            remoteName = "Invasion " .. remoteName
+                        end
+                        remoteName = string.gsub(remoteName, "%s+", " ")
+                        remoteName = string.match(remoteName, "^%s*(.-)%s*$")
+                        table.insert(foundCards, remoteName)
+                        break
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(object:GetChildren()) do
+            search(child)
+        end
+    end
+
+    search(playerGui)
+    return foundCards
 end
 
 -- ============ INVASION UNICA ============
@@ -188,30 +246,17 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
         end)
     end
 
+    local lastVoteTime = 0
+    local function performVote(choice)
+        if os.clock() - lastVoteTime < 3 then return end
+        lastVoteTime = os.clock()
+        Library:Notification({ Name = "Voto automatico: " .. choice, Time = 3 })
+        pcall(function()
+            S.invasionVoteCard:FireServer(choice)
+        end)
+    end
+
     if S.invasionVoteCard then
-        local CARD_SCORES = {
-            ["Overflowing Wealth III"] = 100,
-            ["Overflowing Wealth II"]  = 99,
-            ["Overflowing Wealth I"]   = 98,
-            ["Warrior Blessing III"]   = 80,
-            ["Boss Killer III"]        = 80,
-            ["Espionage"]              = 80,
-            ["Warrior Blessing II"]    = 70,
-            ["Boss Killer II"]         = 70,
-            ["Warrior Blessing I"]     = 60,
-            ["Boss Killer I"]          = 60,
-        }
-
-        local function FindStringsInTable(tbl, list)
-            for _, v in pairs(tbl) do
-                if type(v) == "string" then
-                    table.insert(list, v)
-                elseif type(v) == "table" then
-                    FindStringsInTable(v, list)
-                end
-            end
-        end
-
         voteConn = S.invasionVoteCard.OnClientEvent:Connect(function(...)
             local args = { ... }
             local strings = {}
@@ -229,7 +274,7 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
             for _, cardName in ipairs(strings) do
                 local score = -1
                 for pattern, val in pairs(CARD_SCORES) do
-                    if string.find(cardName, pattern) then
+                    if string.find(string.lower(cardName), string.lower(pattern)) then
                         score = val
                         break
                     end
@@ -245,18 +290,11 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
                 end
             end
 
-            local choice = nil
             if #candidates > 0 then
                 local index = math.random(1, #candidates)
-                choice = candidates[index]
-            else
-                choice = "Invasion Warrior Blessing III" -- Default fallback
+                local choice = candidates[index]
+                performVote(choice)
             end
-
-            Library:Notification({ Name = "Voto automatico: " .. choice, Time = 3 })
-            pcall(function()
-                S.invasionVoteCard:FireServer(choice)
-            end)
         end)
     end
 
@@ -266,6 +304,40 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
 
     while flagCheckFn() and not invasionDone and os.clock() < timeout do
         local iterOk, iterErr = pcall(function()
+            -- === AUTO VOTE CARD SCANNER ===
+            if S.invasionVoteCard then
+                local guiCards = ScanPlayerGuiForVoteCards()
+                if #guiCards > 0 then
+                    local candidates = {}
+                    local highestScore = -1
+
+                    for _, cardName in ipairs(guiCards) do
+                        local score = -1
+                        for pattern, val in pairs(CARD_SCORES) do
+                            if string.find(string.lower(cardName), string.lower(pattern)) then
+                                score = val
+                                break
+                            end
+                        end
+
+                        if score > -1 then
+                            if score > highestScore then
+                                highestScore = score
+                                candidates = { cardName }
+                            elseif score == highestScore then
+                                table.insert(candidates, cardName)
+                            end
+                        end
+                    end
+
+                    if #candidates > 0 then
+                        local index = math.random(1, #candidates)
+                        local choice = candidates[index]
+                        performVote(choice)
+                    end
+                end
+            end
+
             local enemies = GetInvasionEnemiesOnly()
 
             -- === CHECAGEM DE INIMIGOS E TEMPO DE SAIDA ===
@@ -278,9 +350,6 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
                     return
                 end
 
-                if Flags.TeleportRaid then
-                    H.TeleportTo(INVASION_CENTER)
-                end
                 task.wait(0.5)
                 return
             else
@@ -291,9 +360,10 @@ function M.RunSingleInvasion(invasionName, flagCheckFn)
             local target = enemies[1]
             if not H.IsEnemyAlive(target.uuid) then task.wait(0.2) return end
 
-            -- Mantem o personagem travado no centro, sem ir ate a cabeça do inimigo
             if Flags.TeleportRaid then
-                H.TeleportTo(INVASION_CENTER)
+                local nearest = H.GetNearestAliveEnemy()
+                local tpTarget = nearest and nearest.uuid or target.uuid
+                H.TeleportToEnemy(tpTarget)
             end
 
             if not H.AreAllAliveWarriorsAttacking(target.uuid) then
